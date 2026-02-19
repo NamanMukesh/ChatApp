@@ -32,7 +32,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.accept()
 
-    async def disconnect(self):
+    async def disconnect(self, close_code):
         await self.channel_layer.group_discard(
             self.room_group_name,
             self.channel_name
@@ -46,6 +46,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             print("WebSocket ERROR: Received invalid JSON")
             return
 
+        # self.scope is a dictionary that contains all the information about the 
+        # current WebSocket connection
         user = self.scope["user"]
 
         # Ignore empty messages

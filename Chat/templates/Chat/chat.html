@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat - ChatApp</title>
+    {% load static %}
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+
+<body>
+    <div class="chat-container glass-panel">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                Chats
+                <button onclick="logout()"
+                    style="float: right; padding: 4px 8px; font-size: 0.8rem; background: rgba(255,255,255,0.1);">Logout</button>
+            </div>
+            <ul class="room-list" id="roomList">
+                <!-- Rooms will be loaded here -->
+            </ul>
+        </aside>
+
+        <main class="chat-area">
+            <div class="chat-header" id="chatHeader">
+                Select a room to start chatting
+            </div>
+
+            <div class="messages" id="messages">
+                <!-- Messages will be loaded here -->
+            </div>
+
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="Type your message..." disabled>
+                <button onclick="sendMessage()" id="sendBtn" disabled>Send</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('chatToken');
+        const currentUser = localStorage.getItem('currentUser');
+        let socket = null;
+        let currentRoomId = null;
+
+        if (!token) {
+            window.location.href = '/';
+        }
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('chatToken');
+            localStorage.removeItem('currentUser');
+            window.location.href = '/';
+        }
+
+        let nextPageUrl = null;
+        let isLoading = false;
+
+        // Fetch Rooms on Load
+        async function fetchRooms() {
+            try {
+                const response = await fetch('/api/rooms/', {
+                    headers: { 'Authorization': `Token ${token}` }
+                });
+                if (response.status === 401) return logout();
+
+                const rooms = await response.json();
+                const list = document.getElementById('roomList');
+                list.innerHTML = '';
+
+                rooms.forEach(room => {
+                    const li = document.createElement('li');
+                    li.className = 'room-item';
+                    li.innerText = room.name || `Room #${room.id}`;
+                    li.onclick = () => loadRoom(room.id, room.name || `Room #${room.id}`, li);
+                    list.appendChild(li);
+                });
+            } catch (err) {
+                console.error("Failed to load rooms", err);
+            }
+        }
+
+        // Load Room & Connect WebSocket
+        async function loadRoom(roomId, roomName, element) {
+            currentRoomId = roomId;
+
+            // Highlight active room
+            document.querySelectorAll('.room-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+
+            // Update Header
+            document.getElementById('chatHeader').innerText = roomName;
+
+            // Enable inputs
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+
+            // Clear messages
+            document.getElementById('messages').innerHTML = 'Loading history...';
+
+            // Connect WebSocket
+            connectWebSocket(roomId);
+
+            // Fetch History
+            nextPageUrl = `/api/rooms/${roomId}/messages/`;
+            await fetchHistory(roomId, true);
+        }
+
+        async function fetchHistory(roomId, isInitial = false) {
+            if (!nextPageUrl || isLoading) return;
+            isLoading = true;
+
+            try {
+                const response = await fetch(nextPageUrl, {
+                    headers: { 'Authorization': `Token ${token}` }
+                });
+                const data = await response.json();
+
+                // Update pagination state
+                nextPageUrl = data.next;
+
+                const msgContainer = document.getElementById('messages');
+
+                // Clear "Loading history..." on first successful load
+                if (isInitial) {
+                    msgContainer.innerHTML = '';
+                }
+
+                // Save scroll height before prepending
+                const oldScrollHeight = msgContainer.scrollHeight;
+
+                // API returns newest first, so we reverse to show chronologically
+                // Check if data.results exists (pagination)
+                const messages = data.results || [];
+
+                messages.forEach(msg => {
+                    prependMessage(msg.content, msg.user, msg.created_at);
+                });
+
+                // Restore scroll position
+                if (!isInitial) {
+                    msgContainer.scrollTop = msgContainer.scrollHeight - oldScrollHeight;
+                } else {
+                    msgContainer.scrollTop = msgContainer.scrollHeight;
+                }
+
+            } catch (err) {
+                console.error("Failed to load history", err);
+                if (isInitial) {
+                    document.getElementById('messages').innerText = "Failed to load history.";
+                }
+            } finally {
+                isLoading = false;
+            }
+        }
+
+        function connectWebSocket(roomId) {
+            if (socket) socket.close();
+
+            const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+            const url = `${wsScheme}://${window.location.host}/ws/chat/${roomId}/?token=${token}`;
+
+            socket = new WebSocket(url);
+
+            socket.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                appendMessage(data.message, data.username, data.timestamp);
+            };
+
+            socket.onclose = (e) => {
+                console.log("WebSocket closed", e);
+            };
+        }
+
+        function appendMessage(content, user, timestamp) {
+            const container = document.getElementById('messages');
+            const div = createMessageElement(content, user, timestamp);
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function prependMessage(content, user, timestamp) {
+            const container = document.getElementById('messages');
+            const div = createMessageElement(content, user, timestamp);
+            container.insertBefore(div, container.firstChild);
+        }
+
+        function createMessageElement(content, user, timestamp) {
+            const div = document.createElement('div');
+            const isMe = (user === currentUser) || (user.username === currentUser);
+            div.className = `message ${isMe ? 'sent' : 'received'}`;
+            const time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            div.innerHTML = `
+                <div class="message-meta">
+                    <span>${typeof user === 'object' ? user.username : user}</span>
+                    <span>${time}</span>
+                </div>
+                ${content}
+            `;
+            return div;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (content && socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ message: content }));
+                input.value = '';
+            }
+        }
+
+        // Enter key to send
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // Infinite Scroll
+        document.getElementById('messages').addEventListener('scroll', (e) => {
+            if (e.target.scrollTop === 0 && currentRoomId) {
+                fetchHistory(currentRoomId);
+            }
+        });
+
+        fetchRooms();
+    </script>
+</body>
+
+</html>

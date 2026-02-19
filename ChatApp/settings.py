@@ -138,3 +138,11 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 # Media files (user uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# REST Framework Configuration
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',  # Check Token first!
+        'rest_framework.authentication.SessionAuthentication', # Then Session (for Admin)
+    ],
+}

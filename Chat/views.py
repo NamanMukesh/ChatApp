@@ -2,6 +2,8 @@ from .models import Room, Message
 from .serializers import RoomSerializer, MessageSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics
+from django.shortcuts import render
+from rest_framework.pagination import PageNumberPagination
 
 # Create your views here.
 
@@ -13,9 +15,16 @@ class RoomListView(generics.ListAPIView):
         return Room.objects.filter(users=self.request.user)
 
 
+class MessagePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class MessageListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer
+    pagination_class = MessagePagination
     
     def get_queryset(self):
         room_id=self.kwargs['room_id']
@@ -23,5 +32,11 @@ class MessageListView(generics.ListAPIView):
         return Message.objects.filter(
             room_id=room_id,
             room__users=self.request.user
-        )
+        ).order_by('-created_at')
 
+
+def index(request):
+    return render(request, 'Chat/index.html')
+
+def chat(request):
+    return render(request, 'Chat/chat.html')
