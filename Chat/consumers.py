@@ -1,8 +1,7 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from .models import Room, Message
-from django.utils import timezone
+from .models import Room, Message, UserChannel
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -25,18 +24,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
-        await self.channel_layer.group_add(
-            self.room_group_name,
-            self.channel_name
-        )
+        # Save channel name to DB
+        await self.add_user_channel(user, self.channel_name)
 
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.room_group_name,
-            self.channel_name
-        )
+        # Remove channel name from DB
+        await self.remove_user_channel(self.channel_name)
 
     async def receive(self, text_data):
         try:
@@ -56,15 +51,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         timestamp = await self.save_message(user, message)
 
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "chat_message",
-                "message": message,
-                "username": user.username,
-                "timestamp": timestamp,
-            }
-        )
+        # Get all OTHER users' channels in this room
+        channels = await self.get_user_channels(self.room_id)
+        
+        # Send to each channel directly
+        for channel_name in channels:
+            await self.channel_layer.send(
+                channel_name,
+                {
+                    "type": "chat_message",
+                    "message": message,
+                    "username": user.username,
+                    "timestamp": timestamp,
+                }
+            )
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -85,3 +85,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def is_user_in_room(self, user):
         return Room.objects.filter(id=self.room_id, users=user).exists()
+
+    @database_sync_to_async
+    def add_user_channel(self, user, channel_name):
+        UserChannel.objects.create(
+            user=user,
+            channel_name=channel_name,
+            room_id=self.room_id
+        )
+
+    @database_sync_to_async
+    def remove_user_channel(self, channel_name):
+        UserChannel.objects.filter(channel_name=channel_name).delete()
+
+    @database_sync_to_async
+    def get_user_channels(self, room_id):
+        # Fetch all channel names for this room
+        return list(UserChannel.objects.filter(room_id=room_id).values_list('channel_name', flat=True))

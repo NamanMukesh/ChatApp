@@ -29,3 +29,11 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.content[:20]}"
+
+class UserChannel(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    channel_name = models.CharField(max_length=255)
+    room = models.ForeignKey(Room, on_delete=models.CASCADE)
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.channel_name}"
