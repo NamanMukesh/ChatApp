@@ -1,3 +1,5 @@
+from rest_framework.views import APIView
+from rest_framework.response import Response
 from .models import Room, Message
 from .serializers import RoomSerializer, MessageSerializer
 from rest_framework.permissions import IsAuthenticated
@@ -33,6 +35,23 @@ class MessageListView(generics.ListAPIView):
             room_id=room_id,
             room__users=self.request.user
         ).order_by('-created_at')
+
+class MessageSearch(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        query = request.query_params.get('search', '').strip()
+
+        if not query:
+            return Response([])
+
+        messages = Message.objects.filter(
+            room__users=request.user,
+            content__icontains=query
+        ).order_by('created_at')
+
+        serializer = MessageSerializer(messages, many = True)
+        return Response(serializer.data)        
 
 
 def index(request):

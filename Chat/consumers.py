@@ -8,7 +8,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
-        self.room_group_name = f"chat_{self.room_id}"
+        # self.room_group_name was removed as it's no longer used
 
         user = self.scope["user"]
 

@@ -14,9 +14,13 @@
     <div class="chat-container glass-panel">
         <aside class="sidebar">
             <div class="sidebar-header">
-                Chats
-                <button onclick="logout()"
-                    style="float: right; padding: 4px 8px; font-size: 0.8rem; background: rgba(255,255,255,0.1);">Logout</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    Chats
+                    <button onclick="logout()"
+                        style="padding: 4px 8px; font-size: 0.8rem; background: rgba(255,255,255,0.1);">Logout</button>
+                </div>
+                <input type="text" id="searchInput" placeholder="Search... (Type to find messages)"
+                    style="margin-bottom: 0; padding: 8px; font-size: 0.9rem;">
             </div>
             <ul class="room-list" id="roomList">
                 <!-- Rooms will be loaded here -->
@@ -224,6 +228,64 @@
                 fetchHistory(currentRoomId);
             }
         });
+
+        // Search Logic
+        let searchTimeout = null;
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+
+            // Debounce
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                if (query.length > 0) {
+                    fetchSearchResults(query);
+                } else {
+                    fetchRooms(); // Restore room list
+                }
+            }, 500);
+        });
+
+        async function fetchSearchResults(query) {
+            try {
+                const response = await fetch(`/api/messages/search/?search=${encodeURIComponent(query)}`, {
+                    headers: { 'Authorization': `Token ${token}` }
+                });
+
+                const messages = await response.json();
+                const list = document.getElementById('roomList');
+                list.innerHTML = '';
+
+                if (messages.length === 0) {
+                    list.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">No results found.</li>';
+                    return;
+                }
+
+                messages.forEach(msg => {
+                    const li = document.createElement('li');
+                    li.className = 'room-item';
+
+                    // Format: "User: Message..."
+                    li.innerHTML = `
+                        <div style="font-weight: 600; font-size: 0.8rem; color: var(--primary);">${msg.user}</div>
+                        <div style="font-size: 0.9rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${msg.content}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px;">${new Date(msg.created_at).toLocaleDateString()}</div>
+                    `;
+
+                    // On click: Open room
+                    li.onclick = () => {
+                        // We need room name, but search API might not return it. 
+                        // For now we just load the room ID. 
+                        // Ideally backend sends full room details.
+                        // Assuming room name isn't critical for now, or we fetch it.
+                        loadRoom(msg.room, `Room #${msg.room}`, li);
+                    };
+
+                    list.appendChild(li);
+                });
+            } catch (err) {
+                console.error("Search failed", err);
+            }
+        }
 
         fetchRooms();
     </script>
